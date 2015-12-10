@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<configuration>
+
+	<property>
+		<name>privatekey</name>
+		<value>ABCD1234</value>
+		<description>
+			The secret private key helps in creating the hash code.
+		</description>
+	</property>
+
+	<property>
+		<name>subdomain</name>
+		<value></value>
+		<description>
+			The cookie is set for this domain.
+		</description>
+	</property>
+
+	<property>
+		<name>rest.services</name>
+		<value>com.bizosys.oneline.servlet.UserMessagesSetup</value>
+		<description>
+			Comma separated list of Service classes.
+			All services must implement Sensor interfaces.
+		</description>
+	</property>
+	
+</configuration>

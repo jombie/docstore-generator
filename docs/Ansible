@@ -1,0 +1,96 @@
+If epel not installed then install it
+cd /tmp
+wget http://download.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
+rpm -ivh epel-release-6-8.noarch.rpm
+
+--Inside docker
+yum install -y openssh-server openssh-clients
+service sshd start
+sed -ri 's/^session\s+required\s+pam_loginuid.so$/session optional pam_loginuid.so/' /etc/pam.d/sshd
+ssh-keygen -t rsa
+cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+Install ansible
+sudo yum install -y ansible
+mv /etc/ansible/hosts /etc/ansible/hosts.orig
+cp /etc/ansible/hosts.orig /etc/ansible/hosts
+ansible-galaxy init nginx --force
+
+Start two nodes on GCE
+gcloud compute --project "docstore-007" instances create "node1" --zone "asia-east1-a" --machine-type "g1-small" --network "default" --maintenance-policy "MIGRATE" --scopes "https://www.googleapis.com/auth/cloud-platform" --tags "http-server" "https-server" --image "https://www.googleapis.com/compute/v1/projects/centos-cloud/global/images/centos-7-v20151104" --boot-disk-size "10" --boot-disk-type "pd-standard" --boot-disk-device-name "node1"
+gcloud compute --project "docstore-007" instances create "node2" --zone "asia-east1-a" --machine-type "g1-small" --network "default" --maintenance-policy "MIGRATE" --scopes "https://www.googleapis.com/auth/cloud-platform" --tags "http-server" "https-server" --image "https://www.googleapis.com/compute/v1/projects/centos-cloud/global/images/centos-7-v20151104" --boot-disk-size "10" --boot-disk-type "pd-standard" --boot-disk-device-name "node2"
+gcloud compute instances list
+
+Add above hosts to /etc/ansible/hosts file
+
+Basic ansible commands
+ansible all -m ping
+ansible all -m ping -u shubhendu
+ansible all -a "/bin/echo hello"
+
+Gather all facts:
+ansible all -m setup
+
+Documents for module
+ansible-doc yum
+
+List all isntalled modules
+ansible-doc -l
+
+mkdir $HOME/.ansible_roles
+echo "[defaults]\n\nroles_path = $HOME/.ansible_roles" > $HOME/.ansible.cfg
+
+
+https://bildung.xarif.de/xwiki/bin/Articles/The+Marriage+of+Ansible+and+Docker
+http://www.couchbase.com/nosql-resources/presentations/how-gannett-achieved-scalability-and-agility-with-nosql.html
+
+
+
+
+
+
+
+
+=====================
+mkdir -p m2f-deployments m2f-deployments/roles
+cd m2f-deployments
+touch site.yml README.md ansible.cfg
+
+vi ansible.cfg
+[defaults]
+roles_path     = roles
+inventory      = inventory
+
+ansible-galaxy install williamyeh.oracle-java
+ansible-galaxy install williamyeh.elasticsearch
+
+vi site.yml
+---
+ - hosts: all
+  
+   roles:
+    - williamyeh.oracle-java
+    - williamyeh.elasticsearch
+   
+   vars:
+    java_version: 8
+    java_subversion: 65
+
+    elasticsearch_version: 1.7.3
+    #elasticsearch_use_g1gc: true
+    #elasticsearch_heap_size: 6g
+    
+    elasticsearch_plugins:
+      - mobz/elasticsearch-head
+
+    elasticsearch_other_plugins:
+      - name: transport-couchbase
+        url:  http://packages.couchbase.com.s3.amazonaws.com/releases/elastic-search-adapter/2.1.1/elasticsearch-transport-couchbase-2.1.1.zip
+
+		#-- copy verbatim
+    elasticsearch_conf_copy: "files/elasticsearch.yml"
+
+    #-- copy through Ansible's template system
+    #elasticsearch_conf_template: "templates/elasticsearch.yml.j2"
+

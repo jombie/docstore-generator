@@ -1,0 +1,386 @@
+Set the current project in gcloud:
+gcloud config set project docstore-007
+
+Add firewall rules to current set project:
+gcutil addfirewall http-firewall --allowed=tcp:80
+gcutil addfirewall https-firewall --allowed=tcp:443
+
+Create a new gce instance for chef server
+gcloud compute --project "docstore-007" instances create "chef-server" --zone "asia-east1-a" --machine-type "n1-standard-1" --network "default" --maintenance-policy "MIGRATE" --scopes "https://www.googleapis.com/auth/cloud-platform" --image "https://www.googleapis.com/compute/v1/projects/centos-cloud/global/images/centos-7-v20151104" --boot-disk-size "10" --boot-disk-type "pd-standard" --boot-disk-device-name "chef-server"
+
+Download latest chef-server and copy to the created instance
+gcloud compute copy-files ~/Downloads/chef-server-core-12.3.0-1.el7.x86_64.rpm chef-server:/tmp --zone "asia-east1-a"
+
+Ssh into the instance to install chef-server
+gcloud compute ssh --project "docstore-007" --zone "asia-east1-a" chef-server
+
+sudo su
+cd /tmp
+rpm -Uvh /tmp/chef-server-core-12.3.0-1.el7.x86_64.rpm
+
+============================================================================================================================================
+Configure chef-server
+=================================================================================================================================================================
+vi /etc/opscode/chef-server.rb
+
+server_name = "chef-server.c.docstore-007.internal"
+api_fqdn server_name
+bookshelf['vip'] = server_name
+nginx['url'] = "https://#{server_name}"
+nginx['server_name'] = server_name
+nginx['ssl_certificate'] = "/var/opt/opscode/nginx/ca/#{server_name}.crt"
+nginx['ssl_certificate_key'] = "/var/opt/opscode/nginx/ca/#{server_name}.key"
+
+Apply the configuration and start the server:
+chef-server-ctl reconfigure
+
+Enable additional features of the Chef server
+chef-server-ctl install opscode-manage
+chef-server-ctl reconfigure
+opscode-manage-ctl reconfigure
+
+chef-server-ctl install opscode-reporting
+chef-server-ctl reconfigure
+opscode-reporting-ctl reconfigure
+
+chef-server-ctl install chef-sync
+chef-server-ctl reconfigure
+chef-sync-ctl reconfigure
+
+chef-server-ctl install opscode-push-jobs-server
+chef-server-ctl reconfigure
+opscode-push-jobs-server-ctl reconfigure
+
+Run the following command to create an administrator:
+chef-server-ctl user-create admin Shubhendu Shekhar Singh raja5shekhar@gmail.com patanahi --filename ~/chef-admin.pem
+
+Run the following command to create an organization:
+chef-server-ctl org-create m2f "Make Me Free" --association_user admin --filename ~/chef-m2f-validator.pem
+
+Now login to the chef server
+Url      : https://104.155.211.66/
+User     : admin
+password : patanahi
+
+
+===============================================================================================================================================================
+Using ChefDK
+========================================================================================================================================================
+gcloud compute copy-files ~/Downloads/chefdk-0.10.0-1.el6.x86_64.rpm chef-server:/tmp --zone "asia-east1-a"
+sudo rpm -Uvh chefdk-0.10.0-1.el6.x86_64.rpm
+
+Download the starter kit from above url
+mv ~/Downloads/chef-starter.zip .
+unzip chef-starter.zip 
+rm -f /work/m2f/chef-repo/.chef/m2f-validator.pem
+
+Fetch ssl from the chef server
+knife ssl fetch
+knife ssl check
+
+Create a cookbook in the workstation and load it to chef server and bootstrap to it.
+cd chef-repo
+chef generate cookbook cookbooks/hello_chef_server
+
+add to default.rb a recepie which writes a file in then chef temp folder hello.txt file.
+
+file "#{Chef::Config[:file_cache_path]}/hello.txt" do
+  content 'Hello, Chef server!'
+end
+
+Upload the cookbook to chef-server
+knife cookbook upload hello_chef_server
+knife cookbook list
+
+Bootstrap the node machine using ssh keys for the node
+knife bootstrap 130.211.247.91 --ssh-user shubhendu --sudo --identity-file /home/shubhendu/.ssh/google_compute_engine --node-name node1 --run-list 'recipe[hello_chef_server]'
+
+Verify using below command
+knife ssh 130.211.247.91 'more /var/chef/cache/hello.txt' --manual-list --ssh-user shubhendu --identity-file /home/shubhendu/.ssh/google_compute_engine
+
+============================================================================================================================================
+Setup LAMP Stack on node using chef cookbook
+============================================================================================================================================
+cd chef-repo
+chef generate cookbook cookbooks/awesome_customers
+
+create a recipe named user
+chef generate recipe cookbooks/awesome_customers user
+
+create an attributes file named default.rb to store data used in recepies
+chef generate attribute cookbooks/awesome_customers default
+
+Add user and group to the attributes file default.rb
+default['awesome_customers']['user'] = 'web_admin'
+default['awesome_customers']['group'] = 'web_admin'
+
+Create a group and user in user.rb recepie file
+group node['awesome_customers']['group']
+
+user node['awesome_customers']['user'] do
+  group node['awesome_customers']['group']
+  system true
+  shell '/bin/bash'
+end
+
+Include the recepie in the default recepie
+include_recipe 'awesome_customers::user'
+
+To download the apache cookbook from chef supermarket add below line to metadata.rb file
+To list the latest cookbook use below command
+knife cookbook site show httpd | grep latest_version
+depends 'httpd', '~> 0.3.2'
+
+Generate a recepie for a webserver
+chef generate recipe cookbooks/awesome_customers webserver
+
+Add the contents for apache http service in the same
+
+Move hardcoding to the attributes file
+default['awesome_customers']['document_root'] = '/var/www/customers/public_html'
+Change the webserver recepie to add the above attribute
+
+Create a template file to hold the servers conf file
+chef generate template cookbooks/awesome_customers customers.conf
+
+Add the contents to the template file
+
+Include the webserver recepie in the default recepie
+include_recipe 'awesome_customers::webserver'
+
+Set the selinux recepie as dependency
+knife cookbook site show selinux | grep latest_version
+
+To add selinuc in permissive mode add this to default recepie as first include
+include_recipe 'selinux::permissive'
+
+To apply firewall rules use iptables cookbook from supermarket
+knife cookbook site show selinux | grep latest_version
+depends 'iptables', '~> 1.0.0'
+
+Generate templates for firewall rules
+chef generate template cookbooks/awesome_customers firewall_sshd
+chef generate template cookbooks/awesome_customers firewall_http
+
+Add firewall rules to the firewall_sshd
+# Port 22 for SSH
+-A FWR -p tcp -m tcp --dport 22 -j ACCEPT
+
+Add firewall rules to the firewall_http
+# Port 80 for HTTP
+-A FWR -p tcp -m tcp --dport 80 -j ACCEPT
+
+Add the rules defined to the attributes file
+default['awesome_customers']['enabled_firewall_rules'] = %w(firewall_http firewall_sshd)
+
+Create a firewall recepie
+chef generate recipe cookbooks/awesome_customers firewall
+
+Add the content in the firewall recepie to start and initialize iptables
+
+include_recipe 'iptables::default'
+
+node['awesome_customers']['enabled_firewall_rules'].each do |rule|
+  iptables_rule rule do
+    action :enable
+  end
+end
+
+Add the recepie to the default recepie
+include_recipe 'awesome_customers::firewall'
+
+Install dependencies using the Berkshelf
+berks install
+
+Upload your cookbooks to the Chef server 
+( Berkshelf requires a trusted SSL certificate in order to upload cookbooks )
+( https://osxdominion.wordpress.com/2015/02/25/configuring-chef-server-12-to-use-trusted-ssl-certs/ )
+
+For testing use  --no-ssl-verify
+berks upload --no-ssl-verify
+
+Verify upload was successfull
+knife cookbook list
+
+Bootsrap the node to run awsome_customers cookbook
+knife bootstrap 130.211.247.91 --ssh-user shubhendu --sudo --identity-file /home/shubhendu/.ssh/google_compute_engine --node-name node1 --run-list 'recipe[awesome_customers]'
+
+Verify the bootstrap was successfull
+
+Fetch details for user web_admin
+getent passwd web_admin
+
+Verify that web_admin owns the default home page
+stat -c "%U %G" /var/www/customers/public_html/index.php
+
+Verify that the httpd-customers service is running
+sudo service httpd-customers status
+
+Setup Mysql
+===========
+Generate a key to encrypt data bag items
+openssl rand -base64 512 | tr -d '\r\n' > /tmp/encrypted_data_bag_secret
+
+Copy the key file to the node
+scp -i /home/shubhendu/.ssh/google_compute_engine /tmp/encrypted_data_bag_secret shubhendu@130.211.247.91:~
+
+Run the following command to create a data bag named passwords
+knife data bag create passwords
+
+Now create a directory on your workstation for your passwords data bag
+mkdir -p data_bags/passwords
+
+Create a json file with below contents for mysql password
+vim data_bags/passwords/sql_server_root_password.json
+{
+  "id": "sql_server_root_password",
+  "password": "learnchef_mysql"
+}
+
+Encrypt the data bag item and upload it to the Chef server
+knife data bag from file passwords sql_server_root_password.json --secret-file /tmp/encrypted_data_bag_secret
+
+Show the contents of the password
+knife data bag show passwords sql_server_root_password
+knife data bag show passwords sql_server_root_password --secret-file /tmp/encrypted_data_bag_secret
+
+Now follow same steps to create password for db admin
+vim data_bags/passwords/db_admin_password.json
+{
+  "id": "db_admin_password",
+  "password": "database_password"
+}
+knife data bag from file passwords db_admin_password.json --secret-file /tmp/encrypted_data_bag_secret
+
+Store the location of the data bag key file attributes file
+default['awesome_customers']['passwords']['secret_path'] = '/etc/chef/encrypted_data_bag_secret'
+
+Encrypt the password locally
+knife data bag from file passwords sql_server_root_password.json --secret-file /tmp/encrypted_data_bag_secret --local-mode
+knife data bag from file passwords db_admin_password.json --secret-file /tmp/encrypted_data_bag_secret --local-mode
+
+Add mydql dependencies in the metadata file
+
+knife cookbook site show mysql2_chef_gem | grep latest_version
+knife cookbook site show mysql | grep latest_version
+
+depends 'mysql2_chef_gem', '~> 1.0.2'
+depends 'mysql', '~> 6.1.2'
+
+Create a database recepie
+chef generate recipe cookbooks/awesome_customers database
+
+Reference the database cookbook
+knife cookbook site show database | grep latest_version
+depends 'database', '~> 4.0.9'
+
+Add database attributes to the database file
+default['awesome_customers']['database']['dbname'] = 'products'
+default['awesome_customers']['database']['host'] = '127.0.0.1'
+default['awesome_customers']['database']['username'] = 'root'
+default['awesome_customers']['database']['app']['username'] = 'db_admin'
+
+Create the database
+# Create the database instance.
+mysql_database node['awesome_customers']['database']['dbname'] do
+  connection(
+    :host => node['awesome_customers']['database']['host'],
+    :username => node['awesome_customers']['database']['username'],
+    :password => root_password_data_bag_item['password']
+  )
+  action :create
+end
+
+# Load the encrypted data bag item that holds the database user's password.
+user_password_data_bag_item = Chef::EncryptedDataBagItem.load('passwords', 'db_admin_password', password_secret)
+
+# Add a database user.
+mysql_database_user node['awesome_customers']['database']['app']['username'] do
+  connection(
+    :host => node['awesome_customers']['database']['host'],
+    :username => node['awesome_customers']['database']['username'],
+    :password => root_password_data_bag_item['password']
+  )
+  password user_password_data_bag_item['password']
+  database_name node['awesome_customers']['database']['dbname']
+  host node['awesome_customers']['database']['host']
+  action [:create, :grant]
+end
+
+Create a database table and some sample data
+chef generate file cookbooks/awesome_customers create-tables.sql
+
+Add seedfile path to the attributes
+default['awesome_customers']['database']['seed_file'] ='/tmp/create-tables.sql'
+
+use the built-in cookbook_file resource to copy your SQL script to a temporary directory
+# Write schema seed file to filesystem.
+cookbook_file node['awesome_customers']['database']['seed_file'] do
+  source 'create-tables.sql'
+  owner 'root'
+  group 'root'
+  mode '0600'
+end
+
+# Seed the database with a table and test data.
+execute 'initialize database' do
+  command "mysql -h #{node['awesome_customers']['database']['host']} -u #{node['awesome_customers']['database']['app']['username']} -                                   p#{user_password_data_bag_item['password']} -D #{node['awesome_customers']['database']['dbname']} < #{node['awesome_customers']['database']['seed_file']}"
+  not_if  "mysql -h #{node['awesome_customers']['database']['host']} -u #{node['awesome_customers']['database']['app']['username']} -                                   p#{user_password_data_bag_item['password']} -D #{node['awesome_customers']['database']['dbname']} -e 'describe customers;'"
+end
+
+Intall dependencies using 
+berks install
+
+Use Berkshelf to upload the cookbooks to the Chef server
+berks upload --no-ssl-verify
+
+Increment the cookbook's version
+vim metadata.rb
+
+Apply your cookbook on your node
+knife ssh 130.211.247.91 'sudo chef-client' --manual-list --ssh-user shubhendu --identity-file /home/shubhendu/.ssh/google_compute_engine
+
+Verify that the MySQL service is running
+sudo netstat -tap | grep mysql
+
+Verify that the products database exists
+mysqlshow -h 127.0.0.1 -uroot -plearnchef_mysql
+
+Verify that db_admin is enabled as a local database user
+mysql -h 127.0.0.1 -uroot -plearnchef_mysql -e "select user,host from mysql.user;"
+
+Verify that db_admin has rights only to the products database
+mysql -h 127.0.0.1 -uroot -plearnchef_mysql -e "show grants for 'db_admin'@'127.0.0.1';"
+
+Verify the customers database table exists and contains the sample data
+mysql -h 127.0.0.1 -uroot -plearnchef_mysql -Dproducts -e "select id,first_name from customers;"
+
+Install PHP
+===========
+# Install the mod_php5 Apache module.
+httpd_module 'php' do
+  instance 'customers'
+end
+
+# Install php5-mysql.
+package 'php-mysql' do
+  action :install
+  notifies :restart, 'httpd_service[customers]'
+end
+
+Write the PHP application
+
+chef generate template cookbooks/awesome_customers index.php
+
+
+
+
+
+
+
+
+
+
+/opt/chefdk/embedded/bin/gem install knife-google
+Open port 8080
+gcloud compute --project "docstore-007" firewall-rules create "http8080" --allow tcp:8080 --network "default" --source-ranges "0.0.0.0/0" --target-tags "http8080"

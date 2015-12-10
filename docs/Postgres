@@ -1,0 +1,360 @@
+wget http://yum.postgresql.org/9.4/redhat/rhel-6-x86_64/pgdg-centos94-9.4-2.noarch.rpm
+sudo yum install http://yum.postgresql.org/9.4/redhat/rhel-6-x86_64/pgdg-centos94-9.4-2.noarch.rpm
+sudo yum install postgresql94-server postgresql94-contrib
+sudo service postgresql-9.4 initdb
+sudo chkconfig postgresql-9.4 on
+sudo service postgresql-9.4 start
+
+Change listen address to * in below file
+vi /var/lib/pgsql/9.4/data/postgresql.conf
+
+su - postgres
+psql template1
+ALTER USER postgres with encrypted password 'patanahi';
+vi /var/lib/pgsql/9.4/data/pg_hba.conf
+service postgresql9.4 restart
+createuser -U postgres -d -E -P testuser
+createdb -U testuser testdb
+
+psql -U testuser testdb
+
+org.postgresql.Driver
+jdbc:postgresql:database
+
+DROP TABLE IF EXISTS businesses;
+CREATE TABLE businesses(
+	id SERIAL PRIMARY KEY,
+	name text NOT NULL,
+	user_name text NOT NULL,
+	email text NOT NULL,
+	password text NOT NULL,
+	contact_number bigint NOT NULL,
+	alternate_number bigint,
+	location_lat real,
+	location_lon real,
+	address text NOT NULL,
+	pincode integer NOT NULL,
+	description text,
+	category text NOT NULL,
+	sub_category text,
+	photo_url text,
+  is_phone_validated boolean DEFAULT false,
+  is_email_validated boolean DEFAULT false,
+  type_of_verification text,
+	is_business_validated boolean DEFAULT false,
+  search_tags json,
+  business_details json,
+	update_time timestamp default now()
+);
+CREATE INDEX businesses_pincode_idx ON businesses(pincode);
+CREATE INDEX businesses_category_idx ON businesses(category);
+CREATE INDEX businesses_sub_category_idx ON businesses(sub_category);
+
+
+INSERT INTO businesses(name, user_name, email, password, contact_number, alternate_number, location_lat, location_lon, address, 
+pincode, description, category, sub_category, photo_url, type_of_verification, search_tags, business_details) values ('Shubhendu Shekhar Singh', 'shubhendu', 'shubhendu.singh@gmail.com', 'asash1221asa', 
+8123690575, 908571212, 23.98, 23.12, 'Hosue Number #48, CM Layout, Bengaluru, Karnataka', 560068, 'this is atest row', 
+'category-1', 'subcategory-2', 'myphoto.jpg', 'user','{"name": "i dont know", "age": 26}','{}');
+
+
+Couchbase test businesses:
+
+function (doc, meta) {
+  if (meta.type == "json") {
+    if(doc.pincode) {
+      emit(doc.pincode, null);
+    }
+  }
+}
+
+
+343   ms                   10,000
+200   ms                   20,000
+538   ms, 324  ms, 309  ms 40,000
+8037  ms, 2847 ms, 559  ms 80,000
+5215  ms, 1094 ms, 1037 ms 160,000
+11977 ms, 2847 ms, 3405 ms 320,000
+7581  ms, 3560 ms, 3933 ms 640,000
+
+656 ms, 223 ms, 588 ms 10,000
+420 ms, 309 ms, 282 ms 20,000
+944 ms, 1191 ms, 458 ms 40,000
+1737 ms, 922 ms, 783 ms 80,000
+3352 ms, 1330 ms, 1334 ms 160,000
+
+
+View query 700K
+2964 ms(45% disk read), 1394 ms(0% disk read), 1126 ms(0% disk read)
+
+N1ql query before index 700K
+79904 ms(45% disk reads), 26726 ms (80%) 1791 ms(0%)
+
+N1ql query after index 700K
+16514 ms(65% cache miss), 1535 ms(0% cache miss), 242 ms(0% cache miss)
+
+
+View query 800K
+440 ms, 141 ms, 161 ms
+
+N1ql query after index 800K select * 
+160 ms, 149 ms, 169 ms
+
+N1ql query after index 800K select pincode 
+144 ms, 253 ms, 141 ms
+
+3779 ms 188 ms 183 ms
+
+
+
+================
+curl localhost:9200
+curl localhost:9200/_cat/health?v
+curl localhost:9200/_cat/nodes?v
+curl localhost:9200/_cat/indices?v
+curl localhost:9200/_nodes/process?pretty
+curl -XPUT localhost:9200/customer?pretty
+curl localhost:9200/_cat/indices?v
+curl -XPUT 'localhost:9200/customer/external/1?pretty' -d '
+{
+  "name": "John Doe"
+}'
+curl -XGET 'localhost:9200/customer/external/1?pretty'
+curl -XDELETE 'localhost:9200/customer?pretty'
+curl 'localhost:9200/_cat/indices?v'
+curl -XPOST 'localhost:9200/customer/external/1/_update?pretty' -d '
+{
+  "doc": { "name": "Jane Doe", "age": 20 }
+}'
+curl -XPOST 'localhost:9200/bank/account/_bulk?pretty' --data-binary "@accounts.json"
+
+curl 'localhost:9200/bank/_search?q=*&pretty'
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match_all": {} }
+}'
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match_all": {} },
+  "size": 1
+}'
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match_all": {} },
+  "from": 10,
+  "size": 10
+}'
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match_all": {} },
+  "sort": { "balance": { "order": "desc" } }
+}'
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match_all": {} },
+  "_source": ["account_number", "balance"]
+}'
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match": { "account_number": 20 } }
+}'
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match": { "address": "mill" } }
+}'
+mill or lane
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match": { "address": "mill lane" } }
+}'
+mill and lane
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": { "match_phrase": { "address": "mill lane" } }
+}'
+using bool query must match
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": {
+    "bool": {
+      "must": [
+        { "match": { "address": "mill" } },
+        { "match": { "address": "lane" } }
+      ]
+    }
+  }
+}'
+using bool query should match
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": {
+    "bool": {
+      "should": [
+        { "match": { "address": "mill" } },
+        { "match": { "address": "lane" } }
+      ]
+    }
+  }
+}'
+
+using bool query must_not match
+curl -XPOST 'localhost:9200/bank/_search?pretty' -d '
+{
+  "query": {
+    "bool": {
+      "must_not": [
+        { "match": { "address": "mill" } },
+        { "match": { "address": "lane" } }
+      ]
+    }
+  }
+}'
+
+
+===================================
+Couchbase plugin
+cd /mnt/install/elasticsearch-1.7.3
+bin/plugin -install transport-couchbase -url http://packages.couchbase.com.s3.amazonaws.com/releases/elastic-search-adapter/2.1.1/elasticsearch-transport-couchbase-2.1.1.zip
+echo "couchbase.username: admin" >> config/elasticsearch.yml;
+echo "couchbase.password: couchbase" >> config/elasticsearch.yml; 
+echo "couchbase.maxConcurrentRequests: 1024" >> config/elasticsearch.yml;
+bin/plugin -install mobz/elasticsearch-head 
+curl -X PUT http://localhost:9200/_template/couchbase -d @plugins/transport-couchbase/couchbase_template.json 
+curl -X PUT http://localhost:9200/beer-sample
+curl -X POST -u admin:couchbase http://127.0.0.1:8091/internalSettings -d xdcrMaxConcurrentReps=8 --verbose
+
+Configure replication
+ClusterName : ElasticSearch
+Hostname:ip : 127.0.0.1:9091
+userName    : admin
+password    : couchbase
+
+
+Get health of the cluster
+curl -XGET http://localhost:9200/_cluster/health
+
+Get count of indexed items in elastic search
+curl http://127.0.0.1:9200/beer-sample/couchbaseDocument/_count?pretty
+
+Get the mapping of the index
+curl -XGET http://127.0.0.1:9200/beer-sample/_mapping?pretty
+
+Get a particular mapping
+curl -XGET http://127.0.0.1:9200/beer-sample/_mapping/couchbaseDocument?pretty
+
+Get the template of the index
+curl -XGET http://127.0.0.1:9200/_template?pretty
+
+Check the analyzer field on mapping provided
+curl -XGET http://127.0.0.1:9200/beer-sample/_analyze?field=website -d 'Black-cats'
+
+Queries in elastic search:
+{
+    "query": YOUR_QUERY_HERE
+}
+
+Match all query
+{
+    "query": {
+        "match_all": {}
+    }
+}
+
+Structure for query
+{
+    QUERY_NAME: {
+        ARGUMENT: VALUE,
+        ARGUMENT: VALUE,...
+    }
+}
+
+Structure for particular field in a query
+{
+    QUERY_NAME: {
+        FIELD_NAME: {
+            ARGUMENT: VALUE,
+            ARGUMENT: VALUE,...
+        }
+    }
+}
+
+use a match query clause to find tweets that mention elasticsearch in the tweet field
+{
+    "query": {
+        "match": {
+            "tweet": "elasticsearch"
+        }
+    }
+}
+
+For exact match use term filter
+{ "term": { "age":    26           }}
+{ "term": { "date":   "2014-09-01" }}
+{ "term": { "public": true         }}
+{ "term": { "tag":    "full_text"  }}
+
+terms filter matches many exact match
+{ "terms": { "tag": [ "search", "full_text", "nosql" ] }}
+
+Boolean queries
+must     == and
+must_not == not
+should   == or
+{
+    "bool": {
+        "must":     { "term": { "folder": "inbox" }},
+        "must_not": { "term": { "tag":    "spam"  }},
+        "should": [
+                    { "term": { "starred": true   }},
+                    { "term": { "unread":  true   }}
+        ]
+    }o
+}
+
+==> folder:"inbox" AND (NOT tag:"spam") AND (starred:"true" OR unread:"true")
+
+Match query Similar to term query if not_analyzed (Use term filter if you know u want exact match as that is cached)
+{ "match": { "age":    26           }}
+{ "match": { "date":   "2014-09-01" }}
+{ "match": { "public": true         }}
+{ "match": { "tag":    "full_text"  }}
+
+Use filtered query when combining term filter and full text search
+{
+    "filtered": {
+        "query":  { "match": { "email": "business opportunity" }},
+        "filter": { "term":  { "folder": "inbox" }}
+    }
+}
+
+
+Disable storing of fields in a mapping file
+{
+    "mappings": {
+        "my_type": {
+            "_source": {
+                "enabled":  false
+            }
+        }
+    }
+}
+
+Disable all fields using below, after this you need to specify the fiedl on which to query
+{
+    "my_type": {
+        "_all": { "enabled": false }
+    }
+}
+
+Instead of disabling _all completely u can specify whic fields to include in the _all field
+{
+    "my_type": {
+        "include_in_all": false,
+        "properties": {
+            "title": {
+                "type":           "string",
+                "include_in_all": true
+            },
+            ...
+        }
+    }
+}
